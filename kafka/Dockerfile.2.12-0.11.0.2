@@ -1,0 +1,71 @@
+FROM openjdk:8-jre-alpine
+
+# TimeZone 설정
+ENV TZ=Asia/Seoul
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Install required packages (doesn't have from alpine)
+RUN apk add --no-cache \
+    bash \
+    su-exec
+
+ARG DEFAULT_GID=1001
+ARG DEFAULT_UID=1001
+
+# if NOT docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g),
+# it will be set the default UID , SID
+ARG GID=$DEFAULT_GID
+ARG UID=$DEFAULT_UID
+
+#RUN echo "######## Host UID/GID : GID=$GID , UID=$UID"
+
+ENV KAFKA_HOME=/opt/kafka \
+    KAFKA_USER=kafka \
+    KAFKA_PORT=9092 \
+    DATA_DIR=/data \
+    LOG_DIR=/logs \
+    CONF_DIR=/conf
+
+# KAFKA_LOG4J_OPTS="-Dlog4j.configuration=file:/conf/log4j.properties" \
+
+# Add a user and make dirs
+RUN set -ex; \
+    addgroup -g $GID $KAFKA_USER \
+    &&  adduser -u $UID -D -G $KAFKA_USER $KAFKA_USER; \
+    mkdir -p $DATA_DIR $LOG_DIR $CONF_DIR
+
+ARG KAFKA_VERSION=0.11.0.2
+ARG SCALA_VERSION=2.12
+
+#COPY ./files/${DISTRO_NAME}.tgz /tmp/
+
+RUN set -ex; \
+    wget -q "https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz" -P /tmp \
+    && tar zxvf /tmp/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz -C /opt \
+    && ln -s /opt/kafka_${SCALA_VERSION}-${KAFKA_VERSION} $KAFKA_HOME \
+    && chown -R $KAFKA_USER:$KAFKA_USER /opt/kafka_${SCALA_VERSION}-${KAFKA_VERSION} \
+    && chown -R $KAFKA_USER:$KAFKA_USER $KAFKA_HOME \
+    && rm /tmp/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz
+
+# set env variables
+ENV PATH=$PATH:$KAFKA_HOME/bin
+
+# For JMX
+#EXPOSE 9012
+
+# For Kafka Client
+EXPOSE $KAFKA_PORT
+
+# upload needed files
+COPY ./files/server.properties.template $KAFKA_HOME/config/server.properties.template
+COPY ./files/log4j.properties.template $KAFKA_HOME/config/log4j.properties.template
+
+COPY docker-entrypoint.sh /
+RUN chmod 755 /docker-entrypoint.sh
+
+# set access directory into container
+WORKDIR $KAFKA_HOME
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+
+CMD ["kafka-server-start.sh"]

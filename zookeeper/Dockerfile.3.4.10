@@ -1,0 +1,77 @@
+FROM openjdk:8-jre-alpine 
+
+# TimeZone 
+ENV TZ=Asia/Seoul
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Install required packages (doesn't have from alpine)
+RUN apk add --no-cache \
+    bash \
+    su-exec
+
+ENV ZOOKEEPER_HOME=/opt/zookeeper \
+    ZOO_USER=zookeeper \
+    ZOO_CONF_DIR=/conf \
+    ZOO_LOG_DIR=/logs \
+    ZOO_LOG4J_PROP=INFO,ROLLINGFILE
+
+# for zoo.cfg
+ENV dataDir=/data \
+    dataLogDir=/datalog \
+    clientPort=2181
+    
+ARG DEFAULT_GID=1001
+ARG DEFAULT_UID=1001
+
+# if NOT docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g),
+# it will be set the default UID , SID
+ARG GID=$DEFAULT_GID
+ARG UID=$DEFAULT_UID
+
+#RUN echo "###### ARG : GID=$GID , UID=$UID"
+
+# Add a user and make dirs
+RUN set -ex; \
+    addgroup -g $GID $ZOO_USER && adduser -u $UID -D -G $ZOO_USER $ZOO_USER; \
+    mkdir -p $dataLogDir $dataDir $ZOO_CONF_DIR $ZOO_LOG_DIR
+
+#ARG GPG_KEY=C823E3E5B12AF29C67F81976F5CECB3CB5E9BD2D
+ARG DISTRO_NAME=zookeeper-3.4.10
+
+# upload package file
+#COPY ./files/${DISTRO_NAME}.tar.gz /tmp/
+
+# install package file
+RUN set -ex; \
+    wget -q "http://archive.apache.org/dist/zookeeper/$DISTRO_NAME/$DISTRO_NAME.tar.gz" -P /tmp \
+    && tar zxvf /tmp/${DISTRO_NAME}.tar.gz -C /opt \
+    && ln -s /opt/${DISTRO_NAME} $ZOOKEEPER_HOME \
+    && chown -R $ZOO_USER:$ZOO_USER /opt/${DISTRO_NAME} \
+    && chown -R $ZOO_USER:$ZOO_USER $ZOOKEEPER_HOME \
+    && rm /tmp/${DISTRO_NAME}.tar.gz
+
+# set env variables
+ENV PATH=$PATH:$ZOOKEEPER_HOME/bin \
+    ZOOCFGDIR=$ZOO_CONF_DIR
+
+# port
+EXPOSE $clientPort 2888 3888
+
+# upload needed files
+ COPY ./files/zoo.cfg.template $ZOOKEEPER_HOME/conf/
+ COPY ./files/log4j.properties.template $ZOOKEEPER_HOME/conf/
+ COPY ./files/java.env $ZOOKEEPER_HOME/conf/
+
+COPY docker-entrypoint.sh /
+RUN chmod 755 /docker-entrypoint.sh
+
+# set access directory into container
+WORKDIR $ZOOKEEPER_HOME
+
+# error
+#USER $ZOO_USER
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+
+CMD ["zkServer.sh", "start-foreground"]
+

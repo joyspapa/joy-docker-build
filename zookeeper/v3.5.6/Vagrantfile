@@ -1,0 +1,98 @@
+# -*- mode: ruby -*-
+# # vi: set ft=ruby :
+
+require 'fileutils'
+require 'yaml'
+
+Vagrant.require_version ">= 1.6.0"
+
+# User defined config options defined in CONFIG
+$num_instances = 3
+$instance_name_prefix = "cmpn-rt-prod-sense"
+#$instance_name_prefix = "ssg"
+$user = "ecube"
+$vm_memory = 2048
+$vm_cpus = 1
+
+# Defaults for config options defined in CONFIG
+$share_home = false
+$vm_gui = false
+$forwarded_ports = {}
+
+# Attempt to apply the deprecated environment variable NUM_INSTANCES to
+# $num_instances while allowing config.rb to override it
+if ENV["NUM_INSTANCES"].to_i > 0 && ENV["NUM_INSTANCES"]
+  $num_instances = ENV["NUM_INSTANCES"].to_i
+end
+
+# Use old vb_xxx config variables when set
+def vm_gui
+  $vb_gui.nil? ? $vm_gui : $vb_gui
+end
+
+def vm_memory
+  $vb_memory.nil? ? $vm_memory : $vb_memory
+end
+
+def vm_cpus
+  $vb_cpus.nil? ? $vm_cpus : $vb_cpus
+end
+
+Vagrant.configure("2") do |config|
+  config.vm.boot_timeout = 100
+  # always use Vagrants insecure key
+  config.ssh.insert_key = false
+
+  # Not Working (ssh for no password)
+  config.vm.box = "generic/centos7"
+  config.vm.box_version = "2.0.4"
+
+  # bento/centos
+  #config.vm.box = "bento/centos-7.7"
+  #config.vm.box_version = "202002.04.0"
+
+  # enable hostmanager
+  config.hostmanager.enabled = false
+
+  # configure the host's /etc/hosts
+  config.hostmanager.manage_host = false
+
+  # configure the guest's /etc/hosts
+  config.hostmanager.manage_guest = true
+  config.hostmanager.include_offline = true
+
+  (1..$num_instances).each do |i|
+    config.vm.define vm_name = "%s%02d" % [$instance_name_prefix, i] do |config|
+      config.vm.hostname = vm_name
+
+      config.vm.provider :virtualbox do |vb|
+        vb.gui = vm_gui
+        vb.memory = vm_memory
+        vb.cpus = vm_cpus
+      end
+
+      ip = "172.17.9.#{100+i}"
+      config.vm.network :private_network, ip: ip
+      config.vm.provision :hostmanager
+
+      # specified user
+      config.vm.synced_folder './config', "/home/vagrant/config"
+      config.vm.provision :shell do |s|
+          s.path = './config/provision.sh'
+          s.args = "#{$user}"
+      end
+
+      # if the filesystem "vboxsf" is not available
+      config.vbguest.auto_update = false
+      
+      # mount provision config directories
+      config.vm.synced_folder './config', "/home/vagrant/config"
+      
+      ## if you need to enable the following, enable with 'cp -r /home/vagrant/install /home/$user/install' in provision.sh 
+      ## But for executing the update.sh to push the docker-images in create-prireg.yaml, you have to upload a docker-builds directory to server1@~/install/
+      if i == 1
+          config.vm.synced_folder '../../install', "/home/vagrant/install"
+      end
+    end
+  end
+end

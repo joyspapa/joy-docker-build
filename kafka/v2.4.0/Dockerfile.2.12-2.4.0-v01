@@ -1,0 +1,63 @@
+FROM prireg:5000/alpine-openjdk8:1.8.0_191
+
+# TimeZone
+ENV TZ=Asia/Seoul
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# when docker build, if NOT EXIST a following parameter build --build-arg UID=$(id -u) --build-arg GID=$(id -g),
+# it will be set the default UID , SID
+ARG DEFAULT_GID=1001
+ARG DEFAULT_UID=1001
+ARG GID=$DEFAULT_GID
+ARG UID=$DEFAULT_UID
+#RUN echo "######## Host UID/GID : GID=$GID , UID=$UID"
+
+ENV KAFKA_HOME=/opt/kafka \
+    KAFKA_USER=kafka \
+    KAFKA_PORT=9092 \
+    DATA_DIR=/data \
+    LOG_DIR=/logs
+
+ENV KAFKA_CONF_DIR=$KAFKA_HOME/config
+
+# Add a user and make dirs
+RUN set -ex; \
+    addgroup -g $GID $KAFKA_USER && adduser -u $UID -D -G $KAFKA_USER $KAFKA_USER; \
+    mkdir -p $DATA_DIR $LOG_DIR
+
+ARG DISTRO_NAME=kafka_2.12-2.4.0
+
+# upload package file
+COPY ./files/${DISTRO_NAME}.tgz /tmp/
+
+RUN set -ex; \
+    tar zxvf /tmp/${DISTRO_NAME}.tgz -C /opt \
+    && ln -s /opt/${DISTRO_NAME} $KAFKA_HOME \
+    && chown -R $KAFKA_USER:$KAFKA_USER /opt/${DISTRO_NAME} \
+    && chown -R $KAFKA_USER:$KAFKA_USER $KAFKA_HOME \
+    && chown -R $KAFKA_USER:$KAFKA_USER $DATA_DIR \
+    && chown -R $KAFKA_USER:$KAFKA_USER $LOG_DIR \
+    && rm /tmp/${DISTRO_NAME}.tgz
+
+# expose port
+EXPOSE $KAFKA_PORT
+
+# upload needed files
+COPY ./files/server.properties.template $KAFKA_CONF_DIR/server.properties.template
+COPY ./files/log4j.properties.template $KAFKA_CONF_DIR/log4j.properties.template
+COPY docker-entrypoint.sh /
+
+RUN chmod 755 /docker-entrypoint.sh \
+    && chown -R $KAFKA_USER:$KAFKA_USER $KAFKA_CONF_DIR/
+
+# set access directory into container
+WORKDIR $KAFKA_HOME
+
+USER $KAFKA_USER
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+
+# set path kafka/bin directory
+ENV PATH=$PATH:$KAFKA_HOME/bin
+
+CMD ["kafka-server-start.sh"]

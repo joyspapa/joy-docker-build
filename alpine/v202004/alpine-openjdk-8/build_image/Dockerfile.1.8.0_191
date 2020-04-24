@@ -1,0 +1,8 @@
+FROM openjdk:8-jre-alpine
+
+# Install required packages
+RUN apk --update --no-cache add bash su-exec openssl tar \
+    && wget -qO- https://github.com/just-containers/s6-overlay/releases/download/v1.18.1.5/s6-overlay-amd64.tar.gz | tar zxvf -
+
+ENTRYPOINT ["/init"]
+
